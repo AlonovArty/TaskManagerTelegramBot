@@ -99,7 +99,6 @@ namespace TaskManagerTelegramBot_Прохоров
 
         public async void Command(long chatId, string command)
         {
-
             if (command.ToLower() == "/start") SendMessage(chatId, 0);
             else if (command.ToLower() == "/create_task") SendMessage (chatId, 1);
             else if (command.ToLower() == "/list_tasks")
@@ -126,7 +125,7 @@ namespace TaskManagerTelegramBot_Прохоров
             Console.WriteLine("Получено сообщение: " + message.Text + " от пользователя: " + message.Chat.Username);
             long IdUser = message.Chat.Id;
             string MessageUser = message.Text;
-
+            SaveToDatabaseAsync(IdUser.ToString(), MessageUser, message.Chat.Username);
             if (message.Text.Contains("/")) Command(message.Chat.Id, message.Text);
             else if (message.Text.Equals("Удалить все задачи"))
             {
@@ -203,6 +202,31 @@ namespace TaskManagerTelegramBot_Прохоров
 
                     User.Events.Remove(User.Events[i]);
                 }
+            }
+        }
+
+
+        private async void SaveToDatabaseAsync(string userId, string message, string username)
+        {
+            try
+            {
+                using (var db = new DbContexxTg())
+                {
+                    var command = new Command
+                    {
+                        User = "@" + username,
+                        Commands = message
+                    };
+
+                    await db.CommandUser.AddAsync(command);
+                    await db.SaveChangesAsync();
+
+                    Console.WriteLine($"Сохранено в БД: {message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Ошибка БД: {ex.Message}");
             }
         }
     }
