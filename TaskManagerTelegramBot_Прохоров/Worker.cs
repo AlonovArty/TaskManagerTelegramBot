@@ -9,7 +9,7 @@ namespace TaskManagerTelegramBot_Прохоров
 {
     public class Worker : BackgroundService
     {
-        readonly string Toker = "";
+        readonly string Token = "8357760400:AAGDdHGtNeHrnOrJC9iWkvojgIQy9NlU7bE";
         TelegramBotClient TelegramBotClient;
         List<Users> users = new List<Users> ();
         Timer Timer;
@@ -46,11 +46,14 @@ namespace TaskManagerTelegramBot_Прохоров
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                _logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
-                await Task.Delay(1000, stoppingToken);
-            }
+            TelegramBotClient = new TelegramBotClient(Token);
+            TelegramBotClient.StartReceiving(HandleUpdateAsync,
+                HandleErroeAsync,
+                null,
+                new CancellationTokenSource().Token);
+
+            TimerCallback TimerCalBack = new TimerCallback(Tick);
+            Timer = new Timer(TimerCalBack, 0, 0, 60 * 1000);
         }
 
         public bool CheckFormatDateTime(string value, out DateTime time)
@@ -187,5 +190,20 @@ namespace TaskManagerTelegramBot_Прохоров
             Console.WriteLine("ОШИБКА: " + exception.Message);
         }
         
+        public async void Tick(object obj)
+        {
+            string TimeNow = DateTime.Now.ToString("HH.mm dd.MM.yyyy");
+            foreach(Users User in users)
+            {
+                for (int i = 0; i < User.Events.Count; i++)
+                {
+                    if (User.Events[i].Time.ToString("HH.mm dd.MM.yyyy") != TimeNow) continue;
+
+                    await TelegramBotClient.SendMessage(User.IdUser, "Напоминание: " + User.Events[i].Message);
+
+                    User.Events.Remove(User.Events[i]);
+                }
+            }
+        }
     }
 }
