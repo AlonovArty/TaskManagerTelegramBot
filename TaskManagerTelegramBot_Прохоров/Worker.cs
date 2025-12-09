@@ -31,7 +31,10 @@ namespace TaskManagerTelegramBot_Прохоров
             "",
             "Задачи пользователя не найдены.",
             "Событие удалено",
-            "Все события удалены."
+            "Все события удалены.",
+
+             "Укажите дни недели и время в формате:\n" +
+            "<i>вторник, среда 21:00\nПолить цветы</i>"
 
         };
 
@@ -101,6 +104,35 @@ namespace TaskManagerTelegramBot_Прохоров
         {
             if (command.ToLower() == "/start") SendMessage(chatId, 0);
             else if (command.ToLower() == "/create_task") SendMessage (chatId, 1);
+            else if (command.ToLower() == "/create_repeattask") SendMessage(chatId, 7);
+            else if (command.ToLower() == "/list_repeat")
+            {
+                Users User = users.Find(x => x.IdUser == chatId);
+                if (User == null)
+                {
+                    SendMessage(chatId, 4); 
+                }
+                else if (User.RepeatEvents.Count == 0)
+                {
+                    SendMessage(chatId, 4);
+                }
+                else
+                {
+                    foreach (var repeat in User.RepeatEvents)
+                    {
+                        string days = string.Join(", ", repeat.Days.Select(d => d.ToString()));
+
+                        await TelegramBotClient.SendMessage(
+                            chatId,
+                            $"Повторяющееся напоминание: {repeat.Message}\n" +
+                            $"Дни недели: {days}\n" +
+                            $"Время: {repeat.Time:hh\\:mm}",
+                              replyMarkup: DeleteRepeatEvent(repeat.Message)
+
+                        );
+                    }
+                }
+            }
             else if (command.ToLower() == "/list_tasks")
             {
                 Users User = users.Find(x=>x.IdUser  == chatId);
@@ -147,12 +179,19 @@ namespace TaskManagerTelegramBot_Прохоров
                     User = new Users(message.Chat.Id);
                     users.Add(User);
                 }
+                if (TryParseRepeatTask(MessageUser, out List<DayOfWeek> days, out TimeSpan repeatTime, out string repeatMessage))
+                {
+                    User.RepeatEvents.Add(new RepeatEvent(days, repeatTime, repeatMessage));
+                    TelegramBotClient.SendMessage(message.Chat.Id, "Повторяющееся напоминание добавлено!");
+                    return;
+                }
                 string[] Info = message.Text.Split('\n');
                 if(Info.Length < 2)
                 {
                     SendMessage(message.Chat.Id, 2);
                     return;
                 }
+
                 DateTime Time;
                 if (CheckFormatDateTime(Info[0],out Time) == false)
                 {
@@ -181,7 +220,15 @@ namespace TaskManagerTelegramBot_Прохоров
                 Events Event = User.Events.Find(x => x.Message == query.Data);
                 User.Events.Remove(Event);
                 SendMessage(query.Message.Chat.Id, 5);
+
+                var repeatEvent = User.RepeatEvents.Find(x => x.Message == query.Data);
+                if (repeatEvent != null)
+                {
+                    User.RepeatEvents.Remove(repeatEvent);
+                    await TelegramBotClient.SendMessage(query.Message.Chat.Id, "Повторяющееся напоминание удалено!");
+                }
             }
+          
         }
 
         private async Task HandleErroeAsync(ITelegramBotClient client, Exception exception,HandleErrorSource source,CancellationToken token)
@@ -191,6 +238,23 @@ namespace TaskManagerTelegramBot_Прохоров
         
         public async void Tick(object obj)
         {
+            string nowHHmm = DateTime.Now.ToString("HH:mm");
+            DayOfWeek nowDay = DateTime.Now.DayOfWeek;
+
+            foreach (Users user in users)
+            {
+                foreach (var repeat in user.RepeatEvents)
+                {
+                    if (repeat.Days.Contains(nowDay) &&
+                        repeat.Time.Hours == DateTime.Now.Hour &&
+                        repeat.Time.Minutes == DateTime.Now.Minute)
+                    {
+                        await TelegramBotClient.SendMessage(user.IdUser, "Напоминание: " + repeat.Message);
+                    }
+                }
+            }
+
+
             string TimeNow = DateTime.Now.ToString("HH.mm dd.MM.yyyy");
             foreach(Users User in users)
             {
@@ -228,6 +292,63 @@ namespace TaskManagerTelegramBot_Прохоров
             {
                 Console.WriteLine($"Ошибка БД: {ex.Message}");
             }
+        }
+        public static InlineKeyboardMarkup DeleteRepeatEvent(string message)
+        {
+            var inlineKeyboards = new List<InlineKeyboardButton>
+        {
+        InlineKeyboardButton.WithCallbackData("Удалить", message)
+        };
+            return new InlineKeyboardMarkup(inlineKeyboards);
+        }
+        private bool TryParseRepeatTask(string text, out List<DayOfWeek> days, out TimeSpan time, out string msg)
+        {
+            days = new List<DayOfWeek>();
+            time = TimeSpan.Zero;
+            msg = "";
+
+            string[] lines = text.Split('\n');
+
+            if (lines.Length < 2)
+                return false;
+
+            string header = lines[0].Trim();
+            msg = lines[1].Trim();
+
+            string[] parts = header.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (!TimeSpan.TryParse(parts.Last(), out time))
+                return false;
+            string daysPart = header.Replace(parts.Last(), "").Trim();
+
+            string[] dayNames = daysPart.Split(',', StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (string dn in dayNames)
+            {
+                if (TryParseRussianDay(dn.Trim(), out DayOfWeek d))
+                    days.Add(d);
+            }
+
+            return days.Count > 0;
+        }
+        private bool TryParseRussianDay(string name, out DayOfWeek day)
+        {
+            day = default;
+            name = name.ToLower();
+
+            var culture = new System.Globalization.CultureInfo("ru-RU");
+
+            for (int i = 0; i < 7; i++)
+            {
+                string full = culture.DateTimeFormat.GetDayName((DayOfWeek)i).ToLower();
+
+                if (full.StartsWith(name.Substring(0, Math.Min(3, name.Length))))
+                {
+                    day = (DayOfWeek)i;
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }
